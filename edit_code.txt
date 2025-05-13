@@ -1,0 +1,127 @@
+edit_btn = QPushButton("--Редактирвать камеру--")
+edit_btn.setFixedWidth(150)
+edit_btn.clicked.connect(self.edit_camera_dialog)
+button_layout.addWidget(edit_btn)    
+
+
+def edit_camera_dialog(self):
+        with sqlite3.connect(DB_FILE) as conn:
+            cameras = conn.execute("SELECT name FROM cameras").fetchall()
+
+        camera_names = [camera[0] for camera in cameras]
+
+        if not camera_names:
+            errors_func("Нет доступных камер для редактирования")
+            return
+
+        selected_name, ok = QInputDialog.getItem(self, "Выбор камеры", "Выберите камеру для редактирования:", camera_names, 0, False)
+
+        if ok and selected_name:
+            dialog = EditCameraDialog(selected_name, self)
+            if dialog.exec():
+                self.update_camera_display()
+        # Получаем список всех камер из базы данных
+            with sqlite3.connect(DB_FILE) as conn:
+                cameras = conn.execute("SELECT name FROM cameras").fetchall()
+
+            camera_names = [camera[0] for camera in cameras]
+            
+            if not camera_names:
+                errors_func("Нет доступных камер для редактирования")
+                return
+
+            # Показываем диалог для выбора камеры
+            selected_name, ok = QInputDialog.getItem(self, "Выбор камеры", "Выберите камеру для редактирования:", camera_names, 0, False)
+            
+            if ok and selected_name:
+                # Получаем старые данные камеры
+                with sqlite3.connect(DB_FILE) as conn:
+                    camera_data = conn.execute("SELECT * FROM cameras WHERE name = ?", (selected_name,)).fetchone()
+                
+                # Открываем диалоговое окно для изменения имени камеры
+                new_name, ok = QInputDialog.getText(self, "Редактировать имя камеры", "Введите новое имя камеры:", text=camera_data[1])
+
+                if ok and new_name:
+                    # Обновляем имя камеры в базе данных
+                    with sqlite3.connect(DB_FILE) as conn:
+                        conn.execute("UPDATE cameras SET name = ? WHERE name = ?", (new_name, selected_name))
+                    
+                    # Обновляем отображение камер
+                    self.update_camera_display()
+                else:
+                    QMessageBox.warning(self, "Ошибка", "Имя камеры не может быть пустым.")
+
+
+class EditCameraDialog(QDialog):
+    def __init__(self, camera_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Редактировать камеру")
+        self.setModal(True)
+        self.camera_name = camera_name
+
+        self.init_ui()
+        self.load_camera_data()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        self.input_name = QLineEdit(self)
+        layout.addWidget(QLabel("Новое имя камеры:"))
+        layout.addWidget(self.input_name)
+
+        self.btn_select_photo = QPushButton("Выбрать фото")
+        self.btn_select_photo.clicked.connect(self.select_photo)
+        layout.addWidget(self.btn_select_photo)
+
+        self.photo_path_label = QLabel("Файл не выбран")
+        layout.addWidget(self.photo_path_label)
+
+        self.btn_select_video = QPushButton("Выбрать видео")
+        self.btn_select_video.clicked.connect(self.select_video)
+        layout.addWidget(self.btn_select_video)
+
+        self.video_path_label = QLabel("Файл не выбран")
+        layout.addWidget(self.video_path_label)
+
+        self.save_button = QPushButton("Сохранить изменения")
+        self.save_button.clicked.connect(self.save_changes)
+        layout.addWidget(self.save_button)
+
+    def load_camera_data(self):
+        with sqlite3.connect(DB_FILE) as conn:
+            result = conn.execute("SELECT name, photo, video FROM cameras WHERE name = ?", (self.camera_name,)).fetchone()
+
+        if result:
+            name, photo, video = result
+            self.input_name.setText(name)
+            self.photo_path_label.setText(photo if photo else "Файл не выбран")
+            self.video_path_label.setText(video if video else "Файл не выбран")
+
+    def select_photo(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать фото", "", "Изображения (*.jpg *.jpeg *.png)")
+        if file_path:
+            self.photo_path_label.setText(file_path)
+
+    def select_video(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Выбрать видео", "", "Видео (*.mp4 *.avi *.mov)")
+        if file_path:
+            self.video_path_label.setText(file_path)
+
+    def save_changes(self):
+        new_name = self.input_name.text().strip()
+        new_photo = self.photo_path_label.text() if self.photo_path_label.text() != "Файл не выбран" else None
+        new_video = self.video_path_label.text() if self.video_path_label.text() != "Файл не выбран" else None
+
+        if not new_name:
+            QMessageBox.warning(self, "Ошибка", "Имя камеры не может быть пустым.")
+            return
+
+        with sqlite3.connect(DB_FILE) as conn:
+            try:
+                conn.execute("UPDATE cameras SET name = ?, photo = ?, video = ? WHERE name = ?", 
+                            (new_name, new_photo, new_video, self.camera_name))
+                conn.commit()
+                QMessageBox.information(self, "Успех", "Камера успешно обновлена.")
+                self.accept()
+            except sqlite3.IntegrityError:
+                QMessageBox.warning(self, "Ошибка", "Камера с таким именем уже существует.")
